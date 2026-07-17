@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Franchi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.0/math.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000000;
+    --panel:#111111;
+    --bubble-user:#3A475C;
+    --bubble-ai:#2E3A4D;
+    --accent:#E8A33D;
+    --accent-deep:#C97F1E;
+    --text:#FAF7F2;
+    --muted:#8B93A1;
+    --error:#D9695F;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    background:var(--bg);
+    font-family:'Inter', sans-serif;
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+    color:var(--text);
+  }
+  header{
+    padding:18px 20px;
+    background:var(--panel);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    border-bottom:1px solid #333F4F;
+  }
+  header .badge{
+    background:var(--accent);
+    color:var(--bg);
+    font-weight:700;
+    font-size:13px;
+    padding:4px 10px;
+    border-radius:6px;
+  }
+  header h1{ font-size:17px; font-weight:600; }
+  header p{ font-size:12px; color:var(--muted); margin-left:auto; }
+
+  #chat{
+    flex:1;
+    overflow-y:auto;
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .msg{
+    max-width:82%;
+    padding:12px 16px;
+    border-radius:14px;
+    font-size:14.5px;
+    line-height:1.5;
+    white-space:pre-wrap;
+  }
+  .msg.user{
+    background:var(--bubble-user);
+    align-self:flex-end;
+    border-bottom-right-radius:4px;
+  }
+  .msg.ai{
+    background:var(--bubble-ai);
+    align-self:flex-start;
+    border-bottom-left-radius:4px;
+    border-left:3px solid var(--accent);
+  }
+  .msg.ai.error{ border-left-color:var(--error); color:#F0B5AF; }
+  .msg .result{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:18px;
+    color:var(--accent);
+    margin-top:6px;
+    display:block;
+  }
+  .msg .steps{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:8px;
+    display:block;
+  }
+
+  .suggestions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    padding:0 20px 10px;
+  }
+  .chip{
+    background:var(--panel);
+    border:1px solid #3A475C;
+    color:var(--muted);
+    font-size:12px;
+    padding:6px 12px;
+    border-radius:20px;
+    cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .chip:hover{ border-color:var(--accent); color:var(--accent); }
+
+  #inputbar{
+    display:flex;
+    gap:10px;
+    padding:16px 20px;
+    background:var(--panel);
+    border-top:1px solid #333F4F;
+  }
+  #inputbar input{
+    flex:1;
+    background:var(--bg);
+    border:1.5px solid #3A475C;
+    color:var(--text);
+    padding:12px 14px;
+    border-radius:10px;
+    font-size:15px;
+    font-family:'IBM Plex Mono', monospace;
+    outline:none;
+  }
+  #inputbar input:focus{ border-color:var(--accent); }
+  #inputbar button{
+    background:var(--accent);
+    color:var(--bg);
+    border:none;
+    padding:0 22px;
+    border-radius:10px;
+    font-weight:700;
+    font-size:14px;
+    cursor:pointer;
+  }
+  #inputbar button:hover{ background:var(--accent-deep); }
+
+  #chat::-webkit-scrollbar{ width:6px; }
+  #chat::-webkit-scrollbar-thumb{ background:#3A475C; border-radius:3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 style="font-size:24px;">Franchi</h1>
+  <p></p>
+</header>
+
+<div class="suggestions">
+  <div class="chip" onclick="useExample('3x + 5 = 20')">3x + 5 = 20</div>
+  <div class="chip" onclick="useExample('derivative of x^3 + 2x')">derivada de x^3 + 2x</div>
+  <div class="chip" onclick="useExample('sqrt(144) + 5^2')">sqrt(144) + 5^2</div>
+  <div class="chip" onclick="useExample('simplify 2x + 3x - x')">simplifica 2x + 3x - x</div>
+  <div class="chip" onclick="useExample('qué es geometría')">¿qué es geometría?</div>
+</div>
+
+<div id="chat">
+  <div class="msg ai">Hola, soy Franchi. Pregúntame de matemáticas: aritmética, álgebra, derivadas, ecuaciones, simplificación y más.</div>
+</div>
+
+<div id="inputbar">
+  <input type="text" id="userInput" placeholder="Ej: derivative of x^2 + 3x, o 2x+4=10" onkeydown="if(event.key==='Enter') sendMessage()">
+  <button onclick="sendMessage()">Resolver</button>
+</div>
+
+<script>
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('userInput');
+
+  function useExample(text){
+    input.value = text;
+    sendMessage();
+  }
+
+  function addMessage(text, sender, isError=false){
+    const div = document.createElement('div');
+    div.className = `msg ${sender}` + (isError ? ' error' : '');
+    div.innerHTML = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // Diccionario de definiciones matemáticas (fijo, sin API)
+  const definitions = {
+    "geometria": "La geometría es la rama de las matemáticas que estudia las figuras, formas, tamaños y posiciones de los objetos en el espacio: puntos, líneas, ángulos, superficies y sólidos.",
+    "algebra": "El álgebra es la rama de las matemáticas que usa letras y símbolos para representar números y cantidades desconocidas, permitiendo resolver ecuaciones y estudiar sus relaciones.",
+    "aritmetica": "La aritmética es la rama más básica de las matemáticas, que estudia los números y las operaciones fundamentales: suma, resta, multiplicación y división.",
+    "trigonometria": "La trigonometría estudia las relaciones entre los ángulos y los lados de los triángulos, usando funciones como seno, coseno y tangente.",
+    "calculo": "El cálculo es la rama de las matemáticas que estudia el cambio y el movimiento, mediante dos herramientas principales: la derivada (tasa de cambio) y la integral (acumulación).",
+    "derivada": "La derivada mide la tasa de cambio instantánea de una función; indica qué tan rápido cambia el valor de una función en un punto específico.",
+    "integral": "La integral calcula el área bajo una curva o la acumulación total de una cantidad que cambia continuamente.",
+    "probabilidad": "La probabilidad es la rama de las matemáticas que mide qué tan posible es que ocurra un evento, expresado normalmente como un número entre 0 y 1.",
+    "estadistica": "La estadística es la rama de las matemáticas que se encarga de recolectar, organizar, analizar e interpretar datos.",
+    "ecuacion": "Una ecuación es una igualdad matemática entre dos expresiones que contiene una o más incógnitas, y que se resuelve para encontrar el valor de esas incógnitas.",
+    "funcion": "Una función es una relación matemática que asigna a cada valor de entrada (x) exactamente un valor de salida (y).",
+    "logaritmo": "El logaritmo es la operación inversa a la potenciación; responde a la pregunta de a qué exponente hay que elevar una base para obtener un número dado.",
+    "matriz": "Una matriz es un arreglo rectangular de números organizados en filas y columnas, usado en álgebra lineal para representar sistemas de ecuaciones y transformaciones."
+  };
+
+  function normalize(text){
+    return text.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+      .replace(/[¿?]/g, '')
+      .trim();
+  }
+
+  function checkDefinitionQuestion(text){
+    const norm = normalize(text);
+    const match = norm.match(/que es (?:la |el |una |un )?(.+)/);
+    if(!match) return null;
+    const term = match[1].trim();
+    for(const key in definitions){
+      if(term === key || term.includes(key) || key.includes(term)){
+        return definitions[key];
+      }
+    }
+    return 'undefined_term';
+  }
+
+  // Detecta si el texto parece matemática (para "rechazar" preguntas no matemáticas)
+  function looksLikeMath(text){
+    const mathKeywords = /derivative|derivada|integral|simplify|simplifica|solve|resuelve|sqrt|log|sin|cos|tan|factor|geometria|algebra|aritmetica|trigonometria|calculo|probabilidad|estadistica|ecuacion|funcion|logaritmo|matriz/i;
+    const hasMathSymbols = /[0-9+\-*/^=()xX]/.test(text);
+    return mathKeywords.test(normalize(text)) || hasMathSymbols;
+  }
+
+  function sendMessage(){
+    const question = input.value.trim();
+    if(!question) return;
+
+    addMessage(question, 'user');
+    input.value = '';
+
+    // Primero revisa si es una pregunta de definición ("qué es...")
+    const definitionAnswer = checkDefinitionQuestion(question);
+    if(definitionAnswer === 'undefined_term'){
+      addMessage('Esa definición no está en mi diccionario matemático. Puedo definir: geometría, álgebra, aritmética, trigonometría, cálculo, derivada, integral, probabilidad, estadística, ecuación, función, logaritmo, matriz.', 'ai', true);
+      return;
+    }
+    if(definitionAnswer){
+      addMessage(definitionAnswer, 'ai');
+      return;
+    }
+
+    if(!looksLikeMath(question)){
+      addMessage('Respondo preguntas de matemáticas. Prueba con una expresión, ecuación, cálculo, o pregunta "qué es" sobre un término matemático.', 'ai', true);
+      return;
+    }
+
+    try{
+      const result = solveMath(question);
+      addMessage(result, 'ai');
+    }catch(err){
+      addMessage(`No pude resolver esa expresión. Verifica la sintaxis.<span class="steps">Detalle: ${err.message}</span>`, 'ai', true);
+    }
+  }
+
+  function solveMath(q){
+    let clean = q.toLowerCase()
+      .replace(/derivada de|derivative of|deriva/gi, 'derivative:')
+      .replace(/simplifica|simplify/gi, 'simplify:')
+      .replace(/resuelve|solve/gi, 'solve:')
+      .replace(/factoriza|factor/gi, 'factor:')
+      .trim();
+
+    // Derivada
+    if(clean.startsWith('derivative:')){
+      const expr = clean.replace('derivative:', '').trim();
+      const derivative = math.derivative(expr, 'x').toString();
+      return `<span class="result">f'(x) = ${derivative}</span><span class="steps">Derivada calculada respecto a x</span>`;
+    }
+
+    // Simplificar
+    if(clean.startsWith('simplify:')){
+      const expr = clean.replace('simplify:', '').trim();
+      const simplified = math.simplify(expr).toString();
+      return `<span class="result">${simplified}</span><span class="steps">Expresión simplificada</span>`;
+    }
+
+    // Ecuación con "="
+    if(clean.includes('=') && !clean.includes('==')){
+      const [left, right] = clean.replace('solve:', '').split('=').map(s => s.trim());
+
+      // Detecta si x está en un exponente (ej: 2^x, e^(x+1)) — eso no es lineal
+      const hasVariableExponent = /\^[^0-9(]*x|\^\(.*x.*\)/.test(left + right);
+      if(hasVariableExponent){
+        return `No puedo resolver esta ecuación: tiene una variable en el exponente (ecuación exponencial), y mi motor solo resuelve ecuaciones lineales simples.<span class="steps">Prueba escribiéndola de otra forma, o pídele ayuda a Claude directamente.</span>`;
+      }
+
+      const solved = solveLinearEquation(left, right);
+      return `<span class="result">x = ${solved}</span><span class="steps">Ecuación resuelta: ${left} = ${right}</span>`;
+    }
+
+    // Evaluación directa (aritmética, sqrt, potencias, etc.)
+    const result = math.evaluate(clean.replace('solve:', ''));
+    return `<span class="result">${math.format(result, {precision: 10})}</span>`;
+  }
+
+  // Resuelve ecuaciones lineales simples tipo ax + b = c usando álgebra simbólica básica
+  function solveLinearEquation(left, right){
+    // Mueve todo a un lado: left - right = 0, luego usamos math.js para evaluar coeficientes
+    const exprStr = `(${left}) - (${right})`;
+    const node = math.parse(exprStr);
+    const simplified = math.simplify(node);
+
+    // Extraemos coeficiente de x y término independiente evaluando en x=0, x=1 y x=2
+    const f0 = simplified.evaluate({ x: 0 });
+    const f1 = simplified.evaluate({ x: 1 });
+    const f2 = simplified.evaluate({ x: 2 });
+    const a = f1 - f0; // pendiente entre x=0 y x=1
+    const b = f0;      // término independiente
+
+    if(a === 0){
+      throw new Error('No es una ecuación lineal simple en x');
+    }
+
+    // Verificación clave: si la función fuera realmente lineal, la pendiente
+    // entre x=1 y x=2 debería ser IGUAL a la pendiente entre x=0 y x=1.
+    // Si no coincide, significa que hay potencias, exponenciales, etc. (no lineal).
+    const pendienteSiguiente = f2 - f1;
+    if(Math.abs(pendienteSiguiente - a) > 1e-9){
+      throw new Error('La ecuación no es lineal (tiene potencias, exponentes u otra no linealidad), no puedo resolverla con este método');
+    }
+
+    const x = -b / a;
+    return math.format(x, {precision: 10});
+  }
+
+  input.focus();
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(err => console.log('SW error:', err));
+    });
+  }
+</script>
+</body>
+</html>
